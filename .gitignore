@@ -87,3 +87,5 @@ docs/superpowers/
 
 # MkDocs build output
 site/
+.python-version
+avatar_models/
