@@ -82,6 +82,21 @@ class InMemoryRedis:
         self._purge_if_expired(name)
         return self._hash.get(name, {}).get(str(key))
 
+    async def hdel(self, name: str, *keys: str) -> int:
+        self._purge_if_expired(name)
+        mapping = self._hash.get(name)
+        if not mapping:
+            return 0
+        removed = 0
+        for key in keys:
+            if str(key) in mapping:
+                mapping.pop(str(key), None)
+                removed += 1
+        if not mapping:
+            self._hash.pop(name, None)
+            self._expiry.pop(name, None)
+        return removed
+
     async def delete(self, *names: str) -> int:
         n = 0
         for name in names:
@@ -113,8 +128,16 @@ class InMemoryRedis:
         self._purge_if_expired(name)
         return 1 if self._expiry.pop(name, None) is not None else 0
 
-    async def set(self, name: str, value: bytes | str, ex: int | None = None) -> bool:
+    async def set(
+        self,
+        name: str,
+        value: bytes | str,
+        ex: int | None = None,
+        nx: bool = False,
+    ) -> bool | None:
         self._purge_if_expired(name)
+        if nx and (name in self._kv or name in self._hash):
+            return None
         self._kv[name] = value.encode("utf-8") if isinstance(value, str) else bytes(value)
         if ex is not None:
             self._expiry[name] = monotonic() + max(0, int(ex))
