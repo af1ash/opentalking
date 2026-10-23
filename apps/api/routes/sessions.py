@@ -542,6 +542,7 @@ async def _preload_selected_wav2lip_avatar(
 async def create_session(body: CreateSessionRequest, request: Request) -> CreateSessionResponse:
     r: redis.Redis = request.app.state.redis
     settings = request.app.state.settings
+    log.info(body)
     explicit_fields: set[str] = set(getattr(body, "model_fields_set", set()))
     persona_id = (body.persona_id or "").strip() or None
     persona_defaults = None
