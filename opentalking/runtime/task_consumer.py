@@ -341,10 +341,11 @@ async def _do_init(
     sid: str,
 ) -> None:
     """Create runner and call prepare(); caller holds the slot lock if needed."""
-    task = await _task_with_latest_agent_knowledge(task, r, sid)
-    runner = _create_runner(task, r, avatars_root, device)
-    runners[sid] = runner
     try:
+        log.info("Session init started: session=%s model=%s avatar=%s", sid, task.get("model"), task.get("avatar_id"))
+        task = await _task_with_latest_agent_knowledge(task, r, sid)
+        runner = _create_runner(task, r, avatars_root, device)
+        runners[sid] = runner
         await runner.prepare()
         await set_session_state(r, sid, "worker_ready")
         await publish_event(r, sid, "session.queued", {
@@ -352,9 +353,10 @@ async def _do_init(
             "position": 0,
             "message": "worker_ready",
         })
-    except Exception:
+    except Exception as exc:
         runners.pop(sid, None)
-        await set_session_state(r, sid, "error")
+        log.exception("Session init failed: session=%s model=%s", sid, task.get("model"))
+        await set_session_state(r, sid, "error", extra={"error_message": str(exc)})
         raise
 
 

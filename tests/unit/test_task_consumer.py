@@ -974,3 +974,32 @@ async def test_handle_worker_task_flashtalk_init_marks_worker_ready(
 
     await handle_worker_task({"cmd": "close", "session_id": sid}, redis, Path("."), "cpu", runners)
     await asyncio.sleep(0.6)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('stage', ['create', 'prepare'])
+async def test_init_failure_records_error_for_frontend(monkeypatch, stage):
+    sid = 'sess_failed_feathertalk'
+    redis = InMemoryRedis()
+    await redis.hset(session_key(sid), mapping={'session_id': sid, 'state': 'created'})
+    message = 'FeatherTalk checkpoint not found: generator.pth'
+
+    class FailingRunner:
+        async def prepare(self):
+            raise FileNotFoundError(message)
+
+    def create(*args):
+        if stage == 'create':
+            raise FileNotFoundError(message)
+        return FailingRunner()
+
+    monkeypatch.setattr(task_consumer, '_create_runner', create)
+    runners = {}
+    with pytest.raises(FileNotFoundError, match='checkpoint not found'):
+        await task_consumer._do_init(
+            {'model': 'feathertalk'}, redis, Path('.'), 'cpu', runners, sid,
+        )
+    record = await get_session_record(redis, sid)
+    assert record['state'] == 'error'
+    assert record['error_message'] == message
+    assert sid not in runners

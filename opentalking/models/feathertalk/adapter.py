@@ -7,6 +7,7 @@ Datasets contain full_body_img/<index>.jpg and landmarks/<index>.lms.
 """
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,6 +22,7 @@ from opentalking.media.frame_avatar import numpy_bgr_to_videoframe
 from opentalking.models.registry import register_model
 
 FPS = 25
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -64,6 +66,7 @@ class FeatherTalkAdapter:
 
     def load_model(self, device: str = "cuda") -> None:
         # Generator weights can be person-specific and are loaded with the avatar.
+        log.info("FeatherTalk initializing device: %s", device)
         import torch
 
         self._device = os.getenv("OPENTALKING_FEATHERTALK_DEVICE", device)
@@ -72,8 +75,10 @@ class FeatherTalkAdapter:
 
             self._device = str(get_best_device())
         torch.empty(0, device=self._device)  # Fail early for unavailable devices.
+        log.info("FeatherTalk device ready: %s", self._device)
 
     def load_avatar(self, avatar_path: str) -> FeatherTalkState:
+        log.info("FeatherTalk loading avatar: %s", avatar_path)
         import cv2
         import torch
 
@@ -105,6 +110,7 @@ class FeatherTalkAdapter:
         if not paths:
             raise ValueError(f"No FeatherTalk frames in {dataset / 'full_body_img'}")
         self.load_model(self._device)
+        log.info("FeatherTalk preparing %d avatar frames from %s", len(paths), dataset)
         frames, inputs, crops, boxes = [], [], [], []
         for path in paths:
             image = cv2.imread(str(path))
@@ -124,21 +130,27 @@ class FeatherTalkAdapter:
             frames.append(image)
             crops.append(crop)
             boxes.append(box)
+            if len(frames) % 100 == 0:
+                log.info("FeatherTalk prepared %d/%d avatar frames", len(frames), len(paths))
+        log.info("FeatherTalk loading generator checkpoint: %s", checkpoint)
         model = Model().to(self._device)
         model.load_state_dict(load_checkpoint_state(str(checkpoint), self._device))
         model.eval()
+        log.info("FeatherTalk loading HuBERT checkpoint: %s", hubert_checkpoint)
         hubert = load_feather_hubert(hubert_checkpoint, device=torch.device(self._device))
         self._model, self._hubert = model, hubert
         bundle.manifest.fps = FPS
+        log.info("FeatherTalk avatar ready: %s (%d frames)", avatar_path, len(frames))
         return FeatherTalkState(bundle.manifest, frames, inputs, crops, boxes, model, hubert)
 
-    def warmup(self) -> None:
+    def warmup(self, avatar_state: FeatherTalkState | None = None) -> None:
         import torch
 
-        if self._model is None:
+        model = avatar_state.model if avatar_state is not None else self._model
+        if model is None:
             return
         with torch.inference_mode():
-            self._model(torch.zeros(1, 6, 144, 144, device=self._device),
+            model(torch.zeros(1, 6, 144, 144, device=self._device),
                         torch.zeros(1, 40, 1024, device=self._device))
 
     @staticmethod

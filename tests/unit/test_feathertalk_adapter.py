@@ -132,3 +132,23 @@ def test_load_avatar(tmp_path, monkeypatch):
     np.savetxt(dataset / 'landmarks' / '0.lms', points)
     with pytest.raises(ValueError, match='bounding box'):
         adapter.load_avatar(str(tmp_path))
+
+
+@pytest.mark.asyncio
+async def test_feathertalk_prewarm_accepts_avatar_state():
+    from opentalking.providers.synthesis.audio2video_client import LocalAudio2VideoClient
+
+    adapter = FeatherTalkAdapter()
+    adapter._device = 'cpu'
+    calls = []
+
+    def model(image, audio):
+        calls.append((tuple(image.shape), tuple(audio.shape)))
+
+    client = LocalAudio2VideoClient(adapter, device='cpu')
+    client.avatar_state = SimpleNamespace(model=model)
+    try:
+        assert await client.prewarm() == {'type': 'prewarm_ok'}
+    finally:
+        await client.close()
+    assert calls == [((1, 6, 144, 144), (1, 40, 1024))]

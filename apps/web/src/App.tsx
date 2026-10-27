@@ -567,7 +567,7 @@ function validateAudioProviderConfigBeforeStart({
 }
 
 type SpeakAudioResponse = { session_id: string; status: string; text: string };
-type SessionRecord = { session_id: string; state?: string };
+type SessionRecord = { session_id: string; state?: string; error_message?: string };
 type PrewarmState = "idle" | "preparing" | "ready" | "failed";
 type AvatarPrewarmResponse = {
   avatar_id: string;
@@ -2176,7 +2176,7 @@ export default function App() {
         return;
       }
       if (rec.state === "error" || rec.state === "closed") {
-        throw new Error(`Session ${rec.state}`);
+        throw new Error(rec.error_message || `Session ${rec.state}`);
       }
       await wait(750);
     }
@@ -2310,7 +2310,7 @@ export default function App() {
       resetLiveState();
       console.warn("Failed to start session", error);
       setConnection("error");
-      const detail = error instanceof ApiError ? error.detail : null;
+      const detail = error instanceof ApiError ? error.detail : error instanceof Error ? error.message : null;
       const msg = detail
         ? `启动会话失败：${detail}`
         : "启动会话失败，请稍后重试或查看后端日志。";
