@@ -61,27 +61,59 @@ def test_stream_timing_and_reset(monkeypatch):
     assert seen[-1] == (321, 0, 1)
 
 
-def test_infer_compose_pipeline():
+def _write_frame(image_dir, landmark_dir, stem, value=0):
+    import cv2
+
+    image_dir.mkdir(parents=True, exist_ok=True)
+    landmark_dir.mkdir(parents=True, exist_ok=True)
+    path = image_dir / f'{stem}.jpg'
+    cv2.imwrite(str(path), np.full((180, 180, 3), value, np.uint8))
+    points = np.zeros((68, 2))
+    points[1] = [10, 0]
+    points[31] = [170, 0]
+    points[52] = [0, 10]
+    np.savetxt(landmark_dir / f'{stem}.lms', points)
+    return path
+
+
+def test_infer_compose_pipeline(tmp_path, monkeypatch):
+    import cv2
+    from opentalking.models.feathertalk import face_utils
     from opentalking.pipeline.speak.render_pipeline import _infer_predictions
 
     adapter = FeatherTalkAdapter()
     adapter._device = 'cpu'
-    frames = [np.full((180, 180, 3), i, np.uint8) for i in range(3)]
+    paths = [_write_frame(tmp_path / 'images', tmp_path / 'landmarks', str(i * 10), i) for i in range(3)]
     state = FeatherTalkState(
-        manifest=SimpleNamespace(fps=25), frames=frames,
-        inputs=[torch.zeros(6, 144, 144)] * 3,
-        crops=[np.zeros((152, 152, 3), np.uint8)] * 3,
-        boxes=[(0, 0, 152, 152)] * 3,
+        manifest=SimpleNamespace(fps=25, width=180, height=180),
+        frame_paths=paths, landmark_dir=tmp_path / 'landmarks',
         model=lambda image, audio: torch.ones(1, 3, 144, 144), hubert=None,
         extra={'frame_index_start': 2},
     )
+    images_read, landmarks_read = [], []
+    imread, read_landmarks = cv2.imread, face_utils.read_landmarks
+
+    def read_image(path):
+        images_read.append(path)
+        return imread(path)
+
+    def read_points(path):
+        landmarks_read.append(path)
+        return read_landmarks(path)
+
+    monkeypatch.setattr(cv2, 'imread', read_image)
+    monkeypatch.setattr(face_utils, 'read_landmarks', read_points)
     features = FeatherTalkFeatures(np.zeros((4, 40, 1024), np.float32), 4)
     predictions = _infer_predictions(adapter, state, features, frame_index_start=2, infer_batch_frames=2)
+    assert images_read == [str(paths[i]) for i in [2, 1, 0, 1]]
+    assert landmarks_read == [str(state.landmark_dir / f'{paths[i].stem}.lms') for i in [2, 1, 0, 1]]
     frame = adapter.compose_frame(state, 2, predictions[0])
+    assert len(images_read) == 4  # Composition reuses the inferred image.
     assert frame.timestamp_ms == 80
     assert frame.data[20, 20, 0] == 255
-    assert frames[2][20, 20, 0] == 2
+    assert imread(str(paths[2]))[20, 20, 0] == 2
     assert adapter.idle_frame(state, 9).data[20, 20, 0] == 0
+    assert adapter.compose_frame(state, 2, None).data[20, 20, 0] == 2
     assert [_frame_index(i, 3) for i in range(6)] == [0, 1, 2, 1, 0, 1]
 
 
@@ -124,14 +156,23 @@ def test_load_avatar(tmp_path, monkeypatch):
     monkeypatch.setattr(model, 'load_checkpoint_state', lambda path, device: {'path': path})
     monkeypatch.setattr(feather_hubert, 'load_feather_hubert', lambda path, device: object())
     adapter = FeatherTalkAdapter()
-    state = adapter.load_avatar(str(tmp_path))
-    assert state.inputs[0].shape == (6, 144, 144)
+    def unexpected_read(*args, **kwargs):
+        raise AssertionError('load_avatar must not read images or landmarks')
+
+    from opentalking.models.feathertalk import face_utils
+    with monkeypatch.context() as loading:
+        loading.setattr(cv2, 'imread', unexpected_read)
+        loading.setattr(face_utils, 'read_landmarks', unexpected_read)
+        state = adapter.load_avatar(str(tmp_path))
+    assert state.frame_paths == [dataset / 'full_body_img' / '0.jpg']
+    assert state.landmark_dir == dataset / 'landmarks'
     assert state.manifest.fps == 25
     assert loaded == [{'path': str(tmp_path / 'generator.pth')}]
     points[31, 0] = 200
     np.savetxt(dataset / 'landmarks' / '0.lms', points)
+    features = FeatherTalkFeatures(np.zeros((1, 40, 1024), np.float32), 1)
     with pytest.raises(ValueError, match='bounding box'):
-        adapter.load_avatar(str(tmp_path))
+        adapter.infer(features, state)
 
 
 @pytest.mark.asyncio

@@ -34,10 +34,8 @@ class FeatherTalkFeatures:
 @dataclass
 class FeatherTalkState:
     manifest: AvatarManifest
-    frames: list[np.ndarray]
-    inputs: list[Any]
-    crops: list[np.ndarray]
-    boxes: list[tuple[int, int, int, int]]
+    frame_paths: list[Path]
+    landmark_dir: Path
     model: Any
     hubert: Any
     extra: dict[str, Any] = field(default_factory=dict)
@@ -79,14 +77,9 @@ class FeatherTalkAdapter:
 
     def load_avatar(self, avatar_path: str) -> FeatherTalkState:
         log.info("FeatherTalk loading avatar: %s", avatar_path)
-        import cv2
         import torch
 
         from .data_utils.feather_hubert.feather_hubert import load_feather_hubert
-        from .face_utils import (
-            compute_face_bbox, crop_face, extract_inner, hwc_to_chw_tensor,
-            mask_mouth, read_landmarks,
-        )
         from .model import Model, load_checkpoint_state
 
         bundle = load_avatar_bundle(Path(avatar_path), strict=False)
@@ -110,28 +103,7 @@ class FeatherTalkAdapter:
         if not paths:
             raise ValueError(f"No FeatherTalk frames in {dataset / 'full_body_img'}")
         self.load_model(self._device)
-        log.info("FeatherTalk preparing %d avatar frames from %s", len(paths), dataset)
-        frames, inputs, crops, boxes = [], [], [], []
-        for path in paths:
-            image = cv2.imread(str(path))
-            if image is None:
-                raise ValueError(f"Cannot read FeatherTalk frame: {path}")
-            if image.shape[:2] != (bundle.manifest.height, bundle.manifest.width):
-                raise ValueError(f"Frame dimensions do not match avatar manifest: {path}")
-            box = compute_face_bbox(read_landmarks(str(dataset / "landmarks" / f"{path.stem}.lms")))
-            x1, y1, x2, y2 = box
-            if not (0 <= x1 < x2 <= image.shape[1] and 0 <= y1 < y2 <= image.shape[0]):
-                raise ValueError(f"Invalid FeatherTalk face bounding box {box}: {path}")
-            crop = crop_face(image, box)
-            inner = extract_inner(crop)
-            inputs.append(torch.cat([
-                hwc_to_chw_tensor(inner), hwc_to_chw_tensor(mask_mouth(inner.copy())),
-            ], dim=0))
-            frames.append(image)
-            crops.append(crop)
-            boxes.append(box)
-            if len(frames) % 100 == 0:
-                log.info("FeatherTalk prepared %d/%d avatar frames", len(frames), len(paths))
+        log.info("FeatherTalk indexed %d avatar frames from %s (loaded on demand)", len(paths), dataset)
         log.info("FeatherTalk loading generator checkpoint: %s", checkpoint)
         model = Model().to(self._device)
         model.load_state_dict(load_checkpoint_state(str(checkpoint), self._device))
@@ -140,8 +112,8 @@ class FeatherTalkAdapter:
         hubert = load_feather_hubert(hubert_checkpoint, device=torch.device(self._device))
         self._model, self._hubert = model, hubert
         bundle.manifest.fps = FPS
-        log.info("FeatherTalk avatar ready: %s (%d frames)", avatar_path, len(frames))
-        return FeatherTalkState(bundle.manifest, frames, inputs, crops, boxes, model, hubert)
+        log.info("FeatherTalk avatar ready: %s (%d frames)", avatar_path, len(paths))
+        return FeatherTalkState(bundle.manifest, paths, dataset / "landmarks", model, hubert)
 
     def warmup(self, avatar_state: FeatherTalkState | None = None) -> None:
         import torch
@@ -217,35 +189,65 @@ class FeatherTalkAdapter:
         extra["audio_total_samples"] = total
         return features
 
+    @staticmethod
+    def _read_frame(avatar_state: FeatherTalkState, index: int) -> np.ndarray:
+        import cv2
+
+        path = avatar_state.frame_paths[index]
+        image = cv2.imread(str(path))
+        if image is None:
+            raise ValueError(f"Cannot read FeatherTalk frame: {path}")
+        if image.shape[:2] != (avatar_state.manifest.height, avatar_state.manifest.width):
+            raise ValueError(f"Frame dimensions do not match avatar manifest: {path}")
+        return image
+
     def infer(self, features: FeatherTalkFeatures, avatar_state: FeatherTalkState) -> list[np.ndarray]:
+        """Read and prepare only the current resource frame, then paste its prediction.
+
+        Return composed BGR images so compose_frame never has to read the same
+        image/landmarks again or retain all prepared avatar assets in memory.
+        """
+        import cv2
         import torch
+
+        from .face_utils import (
+            FACE_BORDER, FACE_INNER_SIZE, compute_face_bbox, crop_face,
+            extract_inner, hwc_to_chw_tensor, mask_mouth, read_landmarks,
+        )
 
         start = int(avatar_state.extra.get("frame_index_start", 0))
         predictions = []
         with torch.inference_mode():
             for i, audio in enumerate(features.vector):
-                index = _frame_index(start + i, len(avatar_state.frames))
+                index = _frame_index(start + i, len(avatar_state.frame_paths))
+                path = avatar_state.frame_paths[index]
+                image = self._read_frame(avatar_state, index)
+                landmark_path = avatar_state.landmark_dir / f"{path.stem}.lms"
+                box = compute_face_bbox(read_landmarks(str(landmark_path)))
+                x1, y1, x2, y2 = box
+                if not (0 <= x1 < x2 <= image.shape[1] and 0 <= y1 < y2 <= image.shape[0]):
+                    raise ValueError(f"Invalid FeatherTalk face bounding box {box}: {path}")
+                crop = crop_face(image, box)
+                inner = extract_inner(crop)
+                model_input = torch.cat([
+                    hwc_to_chw_tensor(inner), hwc_to_chw_tensor(mask_mouth(inner.copy())),
+                ], dim=0).unsqueeze(0).to(self._device)
                 prediction = avatar_state.model(
-                    avatar_state.inputs[index].unsqueeze(0).to(self._device),
+                    model_input,
                     torch.from_numpy(audio).unsqueeze(0).to(self._device),
                 )[0]
-                predictions.append((prediction.cpu().numpy().transpose(1, 2, 0) * 255).clip(0, 255).astype(np.uint8))
+                prediction = (prediction.cpu().numpy().transpose(1, 2, 0) * 255).clip(0, 255).astype(np.uint8)
+                crop[FACE_BORDER:FACE_BORDER + FACE_INNER_SIZE,
+                     FACE_BORDER:FACE_BORDER + FACE_INNER_SIZE] = prediction
+                image[y1:y2, x1:x2] = cv2.resize(crop, (x2 - x1, y2 - y1))
+                predictions.append(image)
         return predictions
 
     def compose_frame(self, avatar_state: FeatherTalkState, frame_idx: int, prediction: Any) -> VideoFrameData:
-        import cv2
-
-        from .face_utils import FACE_BORDER, FACE_INNER_SIZE
-
-        index = _frame_index(frame_idx, len(avatar_state.frames))
-        image = avatar_state.frames[index].copy()
-        if prediction is not None:
-            crop = avatar_state.crops[index].copy()
-            crop[FACE_BORDER:FACE_BORDER + FACE_INNER_SIZE,
-                 FACE_BORDER:FACE_BORDER + FACE_INNER_SIZE] = prediction
-            x1, y1, x2, y2 = avatar_state.boxes[index]
-            image[y1:y2, x1:x2] = cv2.resize(crop, (x2 - x1, y2 - y1))
-        return numpy_bgr_to_videoframe(image, frame_idx * 1000.0 / FPS)
+        if prediction is None:
+            index = _frame_index(frame_idx, len(avatar_state.frame_paths))
+            prediction = self._read_frame(avatar_state, index)
+        return numpy_bgr_to_videoframe(prediction, frame_idx * 1000.0 / FPS)
 
     def idle_frame(self, avatar_state: FeatherTalkState, frame_idx: int) -> VideoFrameData:
-        return numpy_bgr_to_videoframe(avatar_state.frames[0].copy(), frame_idx * 1000.0 / FPS)
+        return numpy_bgr_to_videoframe(self._read_frame(avatar_state, 0), frame_idx * 1000.0 / FPS)
