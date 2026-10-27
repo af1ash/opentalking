@@ -774,7 +774,7 @@ function pickInitialModel(
   return firstConnected ?? registeredModels[0] ?? avatarModel ?? currentModel;
 }
 
-const SERVER_AUDIO_RENDERERS = new Set(["flashtalk", "flashhead", "fasterliveportrait", "quicktalk", "musetalk", "wav2lip"]);
+const SERVER_AUDIO_RENDERERS = new Set(["flashtalk", "flashhead", "fasterliveportrait", "quicktalk", "musetalk", "wav2lip", "feathertalk"]);
 
 function isFlashRenderer(model: string): boolean {
   return SERVER_AUDIO_RENDERERS.has(model);

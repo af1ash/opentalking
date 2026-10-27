@@ -233,7 +233,7 @@ def _create_runner(
     # Selected explicitly when the user picks model=mock in the UI.
     mock_mode = backend.backend == "mock"
 
-    local_audio2video_models = {"musetalk", "quicktalk", "wav2lip"}
+    local_audio2video_models = {"musetalk", "quicktalk", "wav2lip", "feathertalk"}
     if mock_mode or backend.backend in {"omnirt", "direct_ws"} or (
         backend.backend == "local" and model in local_audio2video_models
     ):

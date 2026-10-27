@@ -37,14 +37,15 @@ SYNTHESIS_PROVIDERS = (
     "fasterliveportrait",
     "flashhead",
     "quicktalk",
+    "feathertalk",
 )
 
-# What the upstream backend can actually serve TODAY.
+# Models supported by the local and upstream backends.
 # `mock` is in-process and always works. OmniRT now exposes model-specific
 # FlashTalk-compatible routes for FlashTalk, MuseTalk, Wav2Lip, FasterLivePortrait,
-# and QuickTalk.
+# and QuickTalk. FeatherTalk uses its local model adapter.
 SUPPORTED_MODELS = frozenset(
-    {"mock", "flashtalk", "musetalk", "wav2lip", "fasterliveportrait", "quicktalk"}
+    {"mock", "flashtalk", "musetalk", "wav2lip", "fasterliveportrait", "quicktalk", "feathertalk"}
 )
 
 

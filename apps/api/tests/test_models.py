@@ -55,8 +55,11 @@ def test_models_route_lists_all_models_with_connection_status_without_omnirt(mon
         "fasterliveportrait",
         "flashhead",
         "quicktalk",
+        "feathertalk",
     ]
     statuses = {item["id"]: item for item in payload["statuses"]}
+    assert statuses["feathertalk"]["backend"] == "local"
+    assert statuses["feathertalk"]["connected"] is True
     assert statuses["mock"]["backend"] == "mock"
     assert statuses["mock"]["connected"] is True
     assert statuses["mock"]["reason"] == "local_self_test"

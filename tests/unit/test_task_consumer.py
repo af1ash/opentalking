@@ -459,8 +459,10 @@ def test_create_runner_wraps_musetalk_omnirt_in_audio2video_client(
     assert captured["audio2video_client"].ws_client.ws_url == "ws://omnirt.test/v1/audio2video/musetalk"
 
 
-def test_create_runner_wraps_local_musetalk_adapter_in_audio2video_client(
+@pytest.mark.parametrize("model", ["musetalk", "feathertalk"])
+def test_create_runner_wraps_local_adapter_in_audio2video_client(
     monkeypatch: pytest.MonkeyPatch,
+    model: str,
 ) -> None:
     captured: dict[str, object] = {}
 
@@ -487,7 +489,7 @@ def test_create_runner_wraps_local_musetalk_adapter_in_audio2video_client(
     )
 
     runner = task_consumer._create_runner(
-        {"session_id": "sess_musetalk", "avatar_id": "singer", "model": "musetalk"},
+        {"session_id": "sess_musetalk", "avatar_id": "singer", "model": model},
         InMemoryRedis(),
         Path("examples/avatars"),
         "cpu",
@@ -497,8 +499,8 @@ def test_create_runner_wraps_local_musetalk_adapter_in_audio2video_client(
     audio2video_client = captured["audio2video_client"]
     assert isinstance(audio2video_client, FakeLocalAudio2VideoClient)
     assert audio2video_client.adapter is fake_adapter
-    assert audio2video_client.device == "cuda:7"
-    assert captured["model_type"] == "musetalk"
+    assert audio2video_client.device == ("cuda:7" if model == "musetalk" else "cpu")
+    assert captured["model_type"] == model
 
 
 def test_create_runner_wraps_local_wav2lip_adapter_in_audio2video_client(

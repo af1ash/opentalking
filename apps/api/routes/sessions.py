@@ -86,9 +86,9 @@ _OMNIRT_TTS = OMNIRT_TTS_PROVIDERS
 _INDEXTTS_TTS = INDEXTTS_TTS_PROVIDERS
 _XIAOMI_MIMO_TTS = XIAOMI_MIMO_TTS_PROVIDERS
 _AUDIO_RENDERER_MODELS = frozenset(
-    {"flashtalk", "flashhead", "fasterliveportrait", "quicktalk", "musetalk", "wav2lip"}
+    {"flashtalk", "flashhead", "fasterliveportrait", "quicktalk", "musetalk", "wav2lip", "feathertalk"}
 )
-_AUDIO_RENDERER_MODELS_LABEL = "flashtalk/flashhead/fasterliveportrait/quicktalk/musetalk/wav2lip"
+_AUDIO_RENDERER_MODELS_LABEL = "flashtalk/flashhead/fasterliveportrait/quicktalk/musetalk/wav2lip/feathertalk"
 _FLASHTALK_SLOT_MODELS = frozenset({"flashtalk", "flashhead"})
 
 
@@ -727,7 +727,7 @@ async def create_session(body: CreateSessionRequest, request: Request) -> Create
                 and backend_name in {"omnirt", "direct_ws"}
             )
             or model == "quicktalk"
-            or (model == "musetalk" and backend_name == "local")
+            or (model in {"musetalk", "feathertalk"} and backend_name == "local")
         ):
             return CreateSessionResponse(session_id=sid, status="initializing")
 
