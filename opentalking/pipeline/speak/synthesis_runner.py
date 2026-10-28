@@ -2430,11 +2430,7 @@ class FlashTalkRunner:
                     self._av_ts_ms = 0.0
                     self._media_clock_started = True
 
-                while True:
-                    item = await audio_q.get()
-                    if item is None:
-                        break
-                    pcm_chunk, sub_tag = item
+                async for pcm_chunk, sub_tag in self._iter_model_audio_chunks(audio_q):
                     pcm_chunk = np.asarray(pcm_chunk, dtype=np.int16)
                     if pcm_chunk.size == 0:
                         log.debug("Skipping empty audio chunk before model generate: session=%s", self.session_id)
@@ -2780,11 +2776,7 @@ class FlashTalkRunner:
                     self._av_ts_ms = 0.0
                     self._media_clock_started = True
 
-                while True:
-                    item = await audio_q.get()
-                    if item is None:
-                        break
-                    pcm_chunk, sub_tag = item
+                async for pcm_chunk, sub_tag in self._iter_model_audio_chunks(audio_q):
                     pcm_chunk = np.asarray(pcm_chunk, dtype=np.int16)
                     if pcm_chunk.size == 0:
                         log.debug("Skipping empty audio chunk before model generate: session=%s", self.session_id)
@@ -2962,6 +2954,46 @@ class FlashTalkRunner:
         """Send one audio chunk to FlashTalk server, push resulting frames to WebRTC."""
         frames = await self._generate_flashtalk_frames(pcm_chunk)
         await self._queue_av_chunk(pcm_chunk, frames)
+
+    async def _iter_model_audio_chunks(self, audio_q):
+        """Supply real future audio to FeatherTalk without playing it twice."""
+        from collections import deque
+
+        client = getattr(self, "audio2video", None)
+        setter = getattr(client, "set_audio_lookahead", None)
+        use_lookahead = getattr(self, "model_type", "") == "feathertalk" and callable(setter)
+        if not use_lookahead:
+            while (item := await audio_q.get()) is not None:
+                yield item
+            return
+        client.reset_audio_stream()
+        pending = deque()
+        ended = False
+        # 9 future video frames plus the valid-convolution tail need <400ms.
+        needed = int(client.sample_rate * 0.4)
+        try:
+            while True:
+                if not pending and not ended:
+                    item = await audio_q.get()
+                    if item is None:
+                        break
+                    pending.append(item)
+                if not pending:
+                    break
+                current = pending.popleft()
+                future_size = sum(len(item[0]) for item in pending)
+                while future_size < needed and not ended:
+                    item = await audio_q.get()
+                    if item is None:
+                        ended = True
+                        break
+                    pending.append(item)
+                    future_size += len(item[0])
+                future = np.concatenate([item[0] for item in pending]) if pending else np.empty(0, np.int16)
+                setter(future[:needed])
+                yield current
+        finally:
+            setter(np.empty(0, np.int16))
 
     async def _generate_flashtalk_frames(
         self,

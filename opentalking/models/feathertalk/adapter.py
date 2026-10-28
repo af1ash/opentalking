@@ -149,16 +149,20 @@ class FeatherTalkAdapter:
     def _features(self, pcm: np.ndarray, hubert: Any, start: int, count: int) -> FeatherTalkFeatures:
         import torch
 
-        from .data_utils.feather_hubert.feather_hubert import get_feather_hubert_from_16k_speech
+        from .data_utils.feather_hubert.feather_hubert import (
+            get_feather_hubert_from_16k_speech, make_even_first_dim,
+        )
         from .face_utils import gather_audio_window, reshape_audio_feat
 
         if count == 0:
             return FeatherTalkFeatures(np.empty((0, 40, 1024), np.float32), 0)
-        # Valid convolutions need 80 additional samples for exactly two tokens/frame.
-        needed = (start + count) * 640 + 80
-        pcm = np.pad(pcm, (0, max(0, needed - len(pcm))))
+        # Match inference.py: normalize real audio, encode, then drop an odd token.
+        # Pad feature frames only; synthetic waveform samples distort normalization.
         hidden = get_feather_hubert_from_16k_speech(pcm, hubert, device=torch.device(self._device))
-        features = hidden[: (len(pcm) - 80) // 640 * 2].numpy().reshape(-1, 2, 1024)
+        features = make_even_first_dim(hidden).numpy().reshape(-1, 2, 1024)
+        missing = start + count - len(features)
+        if missing > 0:
+            features = np.pad(features, ((0, missing), (0, 0), (0, 0)))
         vector = np.stack([
             reshape_audio_feat(gather_audio_window(features, i)).numpy()
             for i in range(start, start + count)
@@ -180,12 +184,15 @@ class FeatherTalkAdapter:
         # Round cumulative time so repeated short chunks do not accumulate drift.
         start = (total_before + 639) // 640
         count = (total + 639) // 640 - start
-        joined = np.concatenate([previous, pcm])
+        history = np.concatenate([previous, pcm])
+        lookahead = np.asarray(extra.pop("feathertalk_lookahead_pcm", np.empty(0)), dtype=np.float32)
+        joined = np.concatenate([history, lookahead])
         context_start = total_before - len(previous)
         features = self._features(joined, avatar_state.hubert, start - context_start // 640, count)
-        # Keep aligned left context for both the encoder and 20-frame audio window.
-        keep_start = max(0, (len(joined) // 640 - 25) * 640)
-        extra["audio_context_pcm"] = joined[keep_start:].copy()
+        # Preserve a frame-aligned 2s left context. Future audio is not committed
+        # to history until it arrives as the next driving chunk.
+        keep_start = max(0, (len(history) // 640 - 50) * 640)
+        extra["audio_context_pcm"] = history[keep_start:].copy()
         extra["audio_total_samples"] = total
         return features
 

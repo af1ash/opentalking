@@ -36,7 +36,7 @@ def test_audio_windows(monkeypatch):
     features = adapter.extract_features(AudioChunk(np.zeros(1600, np.int16), 16000, 100))
     assert features.vector.shape == (3, 40, 1024)
     assert np.all(features.vector[0, :20] == 0)
-    assert np.all(features.vector[0, 20:26] == 1)
+    assert np.all(features.vector[0, 20:24] == 1)
     assert adapter.extract_features(AudioChunk(np.empty(0), 16000, 0)).frame_count == 0
 
 
@@ -54,7 +54,7 @@ def test_stream_timing_and_reset(monkeypatch):
     for _ in range(100):
         counts.append(adapter.extract_features_for_stream(AudioChunk(np.zeros(321, np.int16), 16000, 20), state).frame_count)
     assert sum(counts) == 51
-    assert len(state.extra['audio_context_pcm']) < 26 * 640
+    assert len(state.extra['audio_context_pcm']) < 51 * 640
     from opentalking.pipeline.speak.render_pipeline import reset_avatar_speech_state
     reset_avatar_speech_state(state)
     assert adapter.extract_features_for_stream(AudioChunk(np.zeros(321, np.int16), 16000, 20), state).frame_count == 1
@@ -193,3 +193,87 @@ async def test_feathertalk_prewarm_accepts_avatar_state():
     finally:
         await client.close()
     assert calls == [((1, 6, 144, 144), (1, 40, 1024))]
+
+
+def test_stream_windows_match_offline_with_real_lookahead(monkeypatch):
+    from opentalking.models.feathertalk.data_utils.feather_hubert import feather_hubert
+    from opentalking.models.feathertalk.face_utils import gather_audio_window, reshape_audio_feat
+
+    seen = []
+
+    def encode(pcm, model, device):
+        seen.append(pcm.copy())
+        # A deterministic encoder sensitive to normalization and token position.
+        normalized = feather_hubert.normalize_waveform(pcm)
+        count = feather_hubert.expected_hubert_frames(len(pcm))
+        values = normalized[np.arange(count) * 320]
+        return torch.from_numpy(np.repeat(values[:, None], 1024, axis=1))
+
+    monkeypatch.setattr(feather_hubert, 'get_feather_hubert_from_16k_speech', encode)
+    adapter = FeatherTalkAdapter()
+    adapter._device = 'cpu'
+    state = SimpleNamespace(extra={}, hubert=object())
+    pcm = np.random.default_rng(10).integers(-10000, 10000, 12800, dtype=np.int16)
+    waveform = pcm.astype(np.float32) / 32768
+    hidden = encode(waveform, state.hubert, 'cpu')
+    offline = feather_hubert.make_even_first_dim(hidden).numpy().reshape(-1, 2, 1024)
+    # Live frames cover audio duration; the final incomplete token pair is zero.
+    offline = np.pad(offline, ((0, 20 - len(offline)), (0, 0), (0, 0)))
+    expected = np.stack([reshape_audio_feat(gather_audio_window(offline, i)).numpy() for i in range(20)])
+    state.extra['feathertalk_lookahead_pcm'] = waveform[6400:]
+    first = adapter.extract_features_for_stream(AudioChunk(pcm[:6400], 16000, 400), state)
+    np.testing.assert_array_equal(state.extra['audio_context_pcm'], waveform[:6400])
+    second = adapter.extract_features_for_stream(AudioChunk(pcm[6400:], 16000, 400), state)
+    np.testing.assert_allclose(np.concatenate([first.vector, second.vector]), expected)
+    np.testing.assert_array_equal(seen[-2], waveform)
+    np.testing.assert_array_equal(seen[-1], waveform)
+    assert state.extra['audio_total_samples'] == 12800
+    assert 'feathertalk_lookahead_pcm' not in state.extra
+
+
+def test_audio_extraction_matches_offline_token_pairing(monkeypatch):
+    from opentalking.models.feathertalk.data_utils.feather_hubert import feather_hubert
+
+    captured = []
+
+    def encode(pcm, model, device):
+        captured.append(pcm.copy())
+        # Five tokens: offline inference drops token 4 before pairing.
+        return torch.arange(5, dtype=torch.float32)[:, None].expand(5, 1024)
+
+    monkeypatch.setattr(feather_hubert, 'get_feather_hubert_from_16k_speech', encode)
+    adapter = FeatherTalkAdapter()
+    adapter._device = 'cpu'
+    adapter._hubert = object()
+    pcm = np.arange(1800, dtype=np.int16)
+    features = adapter.extract_features(AudioChunk(pcm, 16000, 112.5))
+    np.testing.assert_array_equal(captured[0], pcm.astype(np.float32) / 32768)
+    np.testing.assert_array_equal(features.vector[0, 20:24, 0], [0, 1, 2, 3])
+    assert np.all(features.vector[0, 24:] == 0)
+
+
+def test_stream_matches_offline_with_actual_encoder():
+    from opentalking.models.feathertalk.data_utils.feather_hubert.feather_hubert import (
+        FeatherHuBERTConfig, FeatherHuBERTEncoder,
+        get_feather_hubert_from_16k_speech, make_even_first_dim,
+    )
+    from opentalking.models.feathertalk.face_utils import gather_audio_window, reshape_audio_feat
+
+    old_threads = torch.get_num_threads()
+    try:
+        torch.set_num_threads(1)
+        with torch.random.fork_rng():
+            torch.manual_seed(7)
+            encoder = FeatherHuBERTEncoder(FeatherHuBERTConfig(channels=16, num_blocks=1)).eval()
+        pcm = np.random.default_rng(11).integers(-12000, 12000, 12800, dtype=np.int16)
+        waveform = pcm.astype(np.float32) / 32768
+        hidden = get_feather_hubert_from_16k_speech(waveform, encoder, device=torch.device('cpu'))
+        offline = make_even_first_dim(hidden).numpy().reshape(-1, 2, 1024)
+        expected = np.stack([reshape_audio_feat(gather_audio_window(offline, i)).numpy() for i in range(10)])
+        adapter = FeatherTalkAdapter()
+        adapter._device = 'cpu'
+        state = SimpleNamespace(hubert=encoder, extra={'feathertalk_lookahead_pcm': waveform[6400:]})
+        actual = adapter.extract_features_for_stream(AudioChunk(pcm[:6400], 16000, 400), state)
+        np.testing.assert_allclose(actual.vector, expected, rtol=1e-5, atol=1e-6)
+    finally:
+        torch.set_num_threads(old_threads)

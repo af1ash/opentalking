@@ -225,6 +225,20 @@ class LocalAudio2VideoClient:
             "chunk_samples": self.audio_chunk_samples,
         }
 
+    def reset_audio_stream(self) -> None:
+        from opentalking.pipeline.speak.render_pipeline import reset_avatar_speech_state
+
+        if self.avatar_state is not None:
+            reset_avatar_speech_state(self.avatar_state)
+            self.avatar_state.extra.pop("feathertalk_lookahead_pcm", None)
+        self.speech_frame_index = 0
+
+    def set_audio_lookahead(self, pcm: np.ndarray) -> None:
+        if self.avatar_state is not None:
+            self.avatar_state.extra["feathertalk_lookahead_pcm"] = (
+                np.asarray(pcm, dtype=np.float32) / 32768.0
+            )
+
     async def get_idle_frame(self, frame_index: int) -> VideoFrameData:
         """Fetch a local adapter's idle frame on its inference executor."""
         if self.avatar_state is None:
@@ -397,6 +411,10 @@ class LocalAudio2VideoClient:
                 1,
                 int(round(float(self.sample_rate) * float(self.slice_len) / max(1, self.fps))),
             )
+        elif getattr(self.adapter, "model_type", "") == "feathertalk":
+            # Ten 40ms frames give the audio encoder useful temporal context.
+            self.slice_len = 10
+            self.audio_chunk_samples = self.sample_rate * self.slice_len // self.fps
         elif self._is_musetalk_adapter():
             try:
                 from opentalking.core.model_config import get_model_config
