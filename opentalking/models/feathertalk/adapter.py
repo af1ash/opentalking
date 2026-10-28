@@ -250,4 +250,5 @@ class FeatherTalkAdapter:
         return numpy_bgr_to_videoframe(prediction, frame_idx * 1000.0 / FPS)
 
     def idle_frame(self, avatar_state: FeatherTalkState, frame_idx: int) -> VideoFrameData:
-        return numpy_bgr_to_videoframe(self._read_frame(avatar_state, 0), frame_idx * 1000.0 / FPS)
+        index = _frame_index(frame_idx, len(avatar_state.frame_paths))
+        return numpy_bgr_to_videoframe(self._read_frame(avatar_state, index), frame_idx * 1000.0 / FPS)

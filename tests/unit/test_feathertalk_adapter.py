@@ -112,7 +112,7 @@ def test_infer_compose_pipeline(tmp_path, monkeypatch):
     assert frame.timestamp_ms == 80
     assert frame.data[20, 20, 0] == 255
     assert imread(str(paths[2]))[20, 20, 0] == 2
-    assert adapter.idle_frame(state, 9).data[20, 20, 0] == 0
+    assert adapter.idle_frame(state, 9).data[20, 20, 0] == 1
     assert adapter.compose_frame(state, 2, None).data[20, 20, 0] == 2
     assert [_frame_index(i, 3) for i in range(6)] == [0, 1, 2, 1, 0, 1]
 

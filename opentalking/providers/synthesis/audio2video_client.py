@@ -225,6 +225,12 @@ class LocalAudio2VideoClient:
             "chunk_samples": self.audio_chunk_samples,
         }
 
+    async def get_idle_frame(self, frame_index: int) -> VideoFrameData:
+        """Fetch a local adapter's idle frame on its inference executor."""
+        if self.avatar_state is None:
+            raise RuntimeError("init_session() must be called before get_idle_frame()")
+        return await self._run_sync(self.adapter.idle_frame, self.avatar_state, frame_index)
+
     def _ensure_musetalk_avatar_prepared(self, avatar_path: Path) -> None:
         if not self._musetalk_auto_prepare_enabled():
             return
