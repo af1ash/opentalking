@@ -134,6 +134,15 @@ class OmniRTAudio2VideoClient:
         self._sync_attrs()
         return dict(response or {})
 
+    def reset_audio_stream(self) -> None:
+        self._ws_client.reset_audio_stream()
+
+    def set_audio_lookahead(self, pcm: np.ndarray) -> None:
+        self._ws_client.set_audio_lookahead(pcm)
+
+    async def get_idle_frame(self, frame_index: int) -> VideoFrameData:
+        return await self._ws_client.get_idle_frame(frame_index)
+
     async def generate(self, audio_pcm: np.ndarray) -> list[VideoFrameData]:
         frames = await self._ws_client.generate(audio_pcm)
         return list(frames or [])

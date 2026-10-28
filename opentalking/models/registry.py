@@ -7,7 +7,7 @@ from opentalking.core.interfaces.model_adapter import ModelAdapter
 T = TypeVar("T", bound=type)
 
 _ADAPTERS: dict[str, Callable[[], ModelAdapter]] = {}
-_REMOTE_MODELS: set[str] = {"flashtalk", "flashhead"}
+_REMOTE_MODELS: set[str] = {"flashtalk", "flashhead", "feathertalk"}
 
 
 def register_model(model_type: str) -> Callable[[T], T]:

@@ -679,6 +679,29 @@ class FlashTalkRunner:
     def _wav2lip_video_config(self) -> dict[str, int] | None:
         return self._manifest_video_config(model_type="wav2lip")
 
+    def _feathertalk_video_config(self) -> dict[str, Any] | None:
+        if self.model_type != "feathertalk":
+            return None
+        from opentalking.core.model_config import get_model_config
+
+        defaults = get_model_config("feathertalk")
+        settings = get_settings()
+        section = self._avatar_manifest_metadata().get("feathertalk") or {}
+        if not isinstance(section, dict):
+            raise ValueError("metadata.feathertalk must be an object")
+        config: dict[str, Any] = {"fps": 25, "slice_len": 1, "chunk_samples": 640}
+        for key in ("dataset", "checkpoint", "hubert_checkpoint"):
+            raw = (
+                os.getenv(f"OPENTALKING_FEATHERTALK_{key.upper()}")
+                or getattr(settings, f"feathertalk_{key}", "")
+                or section.get(key) or defaults.get(key)
+            )
+            if raw:
+                # These paths belong to the inference server. Never resolve
+                # them relative to the API host's working directory.
+                config[f"feathertalk_{key}"] = str(raw)
+        return config
+
     def _quicktalk_video_config(self) -> dict[str, int] | None:
         config = self._manifest_video_config(model_type="quicktalk")
         if config is None:
@@ -1229,6 +1252,9 @@ class FlashTalkRunner:
             return
         from opentalking.core.types.frames import VideoFrameData
         idle_frame: np.ndarray | None = None
+        if self.model_type == "feathertalk":
+            idle_frame = (await self.audio2video.get_idle_frame(self._idle_frame_idx)).data
+            self._idle_frame_idx += 1
         if self._quicktalk_idle_video is not None:
             idle_frame = self._quicktalk_idle_video.next_frame()
             if idle_frame is None:
@@ -1513,7 +1539,7 @@ class FlashTalkRunner:
             ref_image=self._fasterliveportrait_ref_image_payload(ref_image_path, video_config),
             wav2lip_postprocess_mode=self._wav2lip_postprocess_mode(),
             mouth_metadata=self._wav2lip_mouth_metadata(),
-            video_config=video_config or self._quicktalk_video_config(),
+            video_config=video_config or self._feathertalk_video_config() or self._quicktalk_video_config(),
             reference_mode=self._wav2lip_reference_mode(),
             ref_frame_dir=self._wav2lip_reference_frame_dir(),
             ref_frame_metadata_path=self._wav2lip_reference_frame_metadata_path(),
@@ -2512,11 +2538,7 @@ class FlashTalkRunner:
                     self._av_ts_ms = 0.0
                     self._media_clock_started = True
 
-                while True:
-                    item = await audio_q.get()
-                    if item is None:
-                        break
-                    pcm_chunk, sub_tag = item
+                async for pcm_chunk, sub_tag in self._iter_model_audio_chunks(audio_q):
                     pcm_chunk = np.asarray(pcm_chunk, dtype=np.int16)
                     if pcm_chunk.size == 0:
                         log.debug("Skipping empty audio chunk before model generate: session=%s", self.session_id)
@@ -2867,11 +2889,7 @@ class FlashTalkRunner:
                     self._av_ts_ms = 0.0
                     self._media_clock_started = True
 
-                while True:
-                    item = await audio_q.get()
-                    if item is None:
-                        break
-                    pcm_chunk, sub_tag = item
+                async for pcm_chunk, sub_tag in self._iter_model_audio_chunks(audio_q):
                     pcm_chunk = np.asarray(pcm_chunk, dtype=np.int16)
                     if pcm_chunk.size == 0:
                         log.debug("Skipping empty audio chunk before model generate: session=%s", self.session_id)
@@ -3061,6 +3079,43 @@ class FlashTalkRunner:
         """Send one audio chunk to FlashTalk server, push resulting frames to WebRTC."""
         frames = await self._generate_flashtalk_frames(pcm_chunk)
         await self._queue_av_chunk(pcm_chunk, frames)
+
+    async def _iter_model_audio_chunks(self, audio_q):
+        """FeatherTalk needs real right context while emitting 40ms audio chunks."""
+        from collections import deque
+
+        client = getattr(self, "audio2video", None)
+        if getattr(self, "model_type", "") != "feathertalk":
+            while (item := await audio_q.get()) is not None:
+                yield item
+            return
+        client.reset_audio_stream()
+        pending = deque()
+        ended = False
+        needed = 6400  # 400ms at the model's fixed 16kHz sample rate.
+        try:
+            while True:
+                if not pending and not ended:
+                    item = await audio_q.get()
+                    if item is None:
+                        break
+                    pending.append(item)
+                if not pending:
+                    break
+                current = pending.popleft()
+                future_size = sum(len(item[0]) for item in pending)
+                while future_size < needed and not ended:
+                    item = await audio_q.get()
+                    if item is None:
+                        ended = True
+                        break
+                    pending.append(item)
+                    future_size += len(item[0])
+                future = np.concatenate([item[0] for item in pending]) if pending else np.empty(0, np.int16)
+                client.set_audio_lookahead(future[:needed])
+                yield current
+        finally:
+            client.set_audio_lookahead(np.empty(0, np.int16))
 
     async def _generate_flashtalk_frames(
         self,

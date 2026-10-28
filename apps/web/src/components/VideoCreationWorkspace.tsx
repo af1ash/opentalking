@@ -107,7 +107,7 @@ const REFERENCE_DURATION_OPTIONS = [
   { value: 60, label: "1min" },
 ] as const;
 
-const VIDEO_CREATION_MODELS = ["flashtalk", "flashhead", "fasterliveportrait", "musetalk", "quicktalk", "wav2lip"];
+const VIDEO_CREATION_MODELS = ["flashtalk", "flashhead", "fasterliveportrait", "musetalk", "quicktalk", "wav2lip", "feathertalk"];
 const VIDEO_CREATION_OUTPUT_SIZES = {
   "16:9": { label: "16:9", previewClassName: "aspect-video w-full" },
   "9:16": { label: "9:16", previewClassName: "aspect-[9/16] w-[min(100%,22rem)]" },

@@ -3,6 +3,7 @@ const MODEL_LABELS: Record<string, string> = {
   fasterliveportrait: "FasterLivePortrait",
   flashtalk: "FlashTalk",
   mock: "轻量模式",
+  feathertalk: "FeatherTalk",
   musetalk: "MuseTalk",
   quicktalk: "QuickTalk",
   wav2lip: "Wav2Lip",

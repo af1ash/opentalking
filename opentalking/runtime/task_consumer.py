@@ -326,8 +326,13 @@ def _create_runner(
 
                 flashtalk_ws_url = resolve_synthesis_ws_url(model, settings)
             headers = omnirt_auth_headers(settings)
+            ws_client_type = FlashTalkWSClient
+            if model == "feathertalk":
+                from opentalking.providers.synthesis.feathertalk.ws_client import FeatherTalkWSClient
+
+                ws_client_type = FeatherTalkWSClient
             audio2video_client = OmniRTAudio2VideoClient(
-                FlashTalkWSClient(flashtalk_ws_url, extra_headers=headers or None)
+                ws_client_type(flashtalk_ws_url, extra_headers=headers or None)
             )
             # Preserve the user's chosen model name (flashtalk / musetalk / wav2lip / fasterliveportrait).
             # FlashTalkRunner only branches on model_type for model-specific

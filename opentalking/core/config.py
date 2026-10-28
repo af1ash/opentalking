@@ -499,6 +499,11 @@ class Settings(BaseSettings):
 
     quicktalk_asset_root: str = ""
     quicktalk_model_root: str = ""
+    feathertalk_backend: str = ""
+    feathertalk_ws_url: str = ""
+    feathertalk_dataset: str = ""
+    feathertalk_checkpoint: str = ""
+    feathertalk_hubert_checkpoint: str = ""
     quicktalk_backend: str = ""
     quicktalk_model_backend: str = "auto"
     quicktalk_device: str = ""

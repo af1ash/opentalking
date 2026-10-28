@@ -13,6 +13,7 @@ from opentalking.providers.synthesis.omnirt import (
     resolve_synthesis_ws_url,
 )
 from opentalking.providers.synthesis.flashtalk.ws_client import FlashTalkWSClient
+from opentalking.providers.synthesis.feathertalk.ws_client import FeatherTalkWSClient
 
 # All audio2video models behind OmniRT speak the FlashTalk-compatible WS
 # protocol. The same client class is registered under three keys; the runtime
@@ -21,6 +22,7 @@ register("synthesis", "flashtalk")(FlashTalkWSClient)
 register("synthesis", "musetalk")(FlashTalkWSClient)
 register("synthesis", "wav2lip")(FlashTalkWSClient)
 register("synthesis", "quicktalk")(FlashTalkWSClient)
+register("synthesis", "feathertalk")(FeatherTalkWSClient)
 register("synthesis", "fasterliveportrait")(FlashTalkWSClient)
 
 # FlashHead has its own dedicated WS protocol (kept separate, not via omnirt yet).
@@ -37,6 +39,7 @@ SYNTHESIS_PROVIDERS = (
     "fasterliveportrait",
     "flashhead",
     "quicktalk",
+    "feathertalk",
 )
 
 # What the upstream backend can actually serve TODAY.
@@ -44,7 +47,7 @@ SYNTHESIS_PROVIDERS = (
 # FlashTalk-compatible routes for FlashTalk, MuseTalk, Wav2Lip, FasterLivePortrait,
 # and QuickTalk.
 SUPPORTED_MODELS = frozenset(
-    {"mock", "flashtalk", "musetalk", "wav2lip", "fasterliveportrait", "quicktalk"}
+    {"mock", "flashtalk", "musetalk", "wav2lip", "fasterliveportrait", "quicktalk", "feathertalk"}
 )
 
 

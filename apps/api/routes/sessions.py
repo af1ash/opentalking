@@ -86,9 +86,9 @@ _OMNIRT_TTS = OMNIRT_TTS_PROVIDERS
 _INDEXTTS_TTS = INDEXTTS_TTS_PROVIDERS
 _XIAOMI_MIMO_TTS = XIAOMI_MIMO_TTS_PROVIDERS
 _AUDIO_RENDERER_MODELS = frozenset(
-    {"flashtalk", "flashhead", "fasterliveportrait", "quicktalk", "musetalk", "wav2lip"}
+    {"flashtalk", "flashhead", "fasterliveportrait", "quicktalk", "musetalk", "wav2lip", "feathertalk"}
 )
-_AUDIO_RENDERER_MODELS_LABEL = "flashtalk/flashhead/fasterliveportrait/quicktalk/musetalk/wav2lip"
+_AUDIO_RENDERER_MODELS_LABEL = "flashtalk/flashhead/fasterliveportrait/quicktalk/musetalk/wav2lip/feathertalk"
 _FLASHTALK_SLOT_MODELS = frozenset({"flashtalk", "flashhead"})
 
 

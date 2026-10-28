@@ -55,6 +55,7 @@ def test_models_route_lists_all_models_with_connection_status_without_omnirt(mon
         "fasterliveportrait",
         "flashhead",
         "quicktalk",
+        "feathertalk",
     ]
     statuses = {item["id"]: item for item in payload["statuses"]}
     assert statuses["mock"]["backend"] == "mock"
@@ -382,3 +383,20 @@ async def test_omnirt_status_falls_back_to_legacy_avatar_models_path(monkeypatch
 
     assert await _fetch_omnirt_audio2video_models(settings) == {"flashtalk"}
     assert calls == ["/v1/audio2video/models", "/v1/avatar/models"]
+
+
+def test_models_route_reports_feathertalk_omnirt_status(monkeypatch):
+    async def models(_settings):
+        return {'feathertalk'}
+    monkeypatch.setattr('opentalking.providers.synthesis.availability._fetch_omnirt_audio2video_models', models)
+    monkeypatch.delenv('OPENTALKING_FEATHERTALK_BACKEND', raising=False)
+    clear_model_config_cache()
+    app = FastAPI()
+    app.state.settings = SimpleNamespace(omnirt_endpoint='http://inference:9000', default_model='feathertalk')
+    app.include_router(models_routes.router)
+    with TestClient(app) as client:
+        payload = client.get('/models').json()
+    status = next(item for item in payload['statuses'] if item['id'] == 'feathertalk')
+    assert status == {'id': 'feathertalk', 'backend': 'omnirt', 'connected': True, 'reason': 'omnirt'}
+    assert payload['default_model'] == 'feathertalk'
+    clear_model_config_cache()

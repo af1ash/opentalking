@@ -183,6 +183,9 @@ class FlashTalkWSClient:
             payload["quicktalk_face_cache"] = str(quicktalk_face_cache)
         if video_config:
             for key in (
+                "feathertalk_dataset",
+                "feathertalk_checkpoint",
+                "feathertalk_hubert_checkpoint",
                 "width",
                 "height",
                 "fps",

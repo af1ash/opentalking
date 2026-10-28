@@ -294,7 +294,7 @@ async def _read_upload_video(upload: UploadFile) -> tuple[Image.Image, bytes, st
 
 def _normalize_custom_avatar_model(model: str | None, fallback: str) -> str:
     value = (model or "").strip().lower()
-    if value in {"fasterliveportrait", "flashhead", "flashtalk", "mock", "musetalk", "quicktalk", "wav2lip"}:
+    if value in {"fasterliveportrait", "flashhead", "flashtalk", "mock", "musetalk", "quicktalk", "wav2lip", "feathertalk"}:
         return value
     return fallback
 

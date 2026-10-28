@@ -1,0 +1,6 @@
+# Asset paths refer to the OmniRT server's filesystem, not the browser/API host.
+# Leave empty to use OMNIRT_FEATHERTALK_* on the inference server.
+backend: omnirt
+dataset: ""
+checkpoint: ""
+hubert_checkpoint: ""
