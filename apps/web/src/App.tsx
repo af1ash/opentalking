@@ -18,6 +18,7 @@ import { ToastStack, type ToastMessage, type ToastTone } from "./components/Toas
 import { AssetLibraryWorkspace, type AssetLibraryTab } from "./components/AssetLibraryWorkspace";
 import { VideoCloneWorkspace } from "./components/VideoCloneWorkspace";
 import { playWithMutedFallback } from "./components/VideoBackground";
+import { VideoFpsOverlay } from "./components/VideoFpsOverlay";
 import {
   DEFAULT_VIDEO_CREATION_FASTLIVEPORTRAIT_CONFIG,
   VideoCreationWorkspace,
@@ -3138,6 +3139,9 @@ export default function App() {
                 clientRenderer={!showStart && model === "mock" ? currentAvatar?.client_renderer ?? null : null}
                 className="h-full w-full"
               >
+                {remoteStream && model !== "mock" ? (
+                  <VideoFpsOverlay videoRef={videoRef} stream={remoteStream} />
+                ) : null}
                 {immersiveActive ? (
                   <>
                     <div className="absolute right-0 top-0 z-30 flex h-24 w-48 items-start justify-end p-4">
