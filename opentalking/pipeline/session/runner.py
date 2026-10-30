@@ -589,12 +589,14 @@ class SessionRunner:
                 video_callback=self._program_video_to_webrtc,
                 audio_callback=self._program_audio_to_webrtc,
             )
+            log.info("streaming_enable and add branch studio-webrtc")
         self._build_idle_frame_cache()
         if self._render_in_executor and self._render_executor is None:
             self._render_executor = ThreadPoolExecutor(
                 max_workers=1,
                 thread_name_prefix=f"opentalking-render-{self.session_id}",
             )
+            log.info(f"render_in_executor self._render_executor=opentalking-render-{self.session_id}")
         if self._idle_task is None:
             self._idle_task = asyncio.create_task(self._idle_loop())
         if self._tts_prewarm_on_prepare:

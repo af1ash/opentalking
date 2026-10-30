@@ -1011,6 +1011,7 @@ class FlashTalkRunner:
                 video_callback=self._program_video_to_webrtc,
                 audio_callback=self._program_audio_to_webrtc,
             )
+            log.info("streaming_enable and add branch studio-webrtc")
 
         # Auto-close session when WebRTC peer disconnects (releases the slot lock)
         @self.webrtc.pc.on("connectionstatechange")
