@@ -876,6 +876,27 @@ class FlashTalkRunner:
         mode = str(metadata.get("reference_mode") or "").strip().lower()
         return mode if mode in {"frames"} else None
 
+    def _reference_mode(self) -> str | None:
+        metadata = self._avatar_manifest_metadata()
+        mode = str(metadata.get("reference_mode") or "").strip().lower()
+        return mode if mode in {"frames"} else None
+    
+    def _reference_frame_dir(self) -> Path | None:
+        if self._reference_mode() != "frames":
+            return None
+        metadata = self._avatar_manifest_metadata()
+        raw = str(metadata.get("frame_dir") or "frames").strip() or "frames"
+        frame_dir = (self.avatar_path() / raw).resolve()
+        try:
+            frame_dir.relative_to(self.avatar_path())
+        except ValueError:
+            log.warning("Ignoring wav2lip frame_dir outside avatar directory: %s", frame_dir)
+            return None
+        if not frame_dir.is_dir():
+            log.warning("Ignoring missing wav2lip frame_dir: %s", frame_dir)
+            return None
+        return frame_dir
+
     def _wav2lip_reference_frame_dir(self) -> Path | None:
         if self._wav2lip_reference_mode() != "frames":
             return None
@@ -1052,6 +1073,7 @@ class FlashTalkRunner:
             # Convert RGB to BGR for WebRTC.
             self._reference_frame = img[:, :, ::-1].copy()
             self._last_frame = self._reference_frame.copy()
+            log.exception("Success to load reference frame for idle preview: %s", ref_image_path)
         except Exception:
             log.exception("Failed to load reference frame for idle preview: %s", ref_image_path)
             self._reference_frame = None
@@ -1067,6 +1089,15 @@ class FlashTalkRunner:
                     len(idle_frames),
                 )
 
+        if self.model_type == "feathertalk" and self._reference_mode() == "frames":
+            idle_frames = self._load_reference_idle_frames()
+            if idle_frames:
+                self._set_idle_frames(idle_frames)
+                log.info(
+                    "Loaded feathertalk reference frames for idle playback: avatar=%s frames=%d",
+                    self.avatar_id,
+                    len(idle_frames),
+                )
         if self.model_type == "quicktalk":
             idle_video = self._open_quicktalk_reference_idle_video()
             if idle_video is not None:
@@ -1382,6 +1413,37 @@ class FlashTalkRunner:
             p.name, len(frames), target_w, target_h,
         )
         return frames
+
+    def _load_reference_idle_frames(self) -> list[np.ndarray] | None:
+        frame_dir = self._reference_frame_dir()
+        if frame_dir is None:
+            return None
+        frame_paths = sorted(
+            path
+            for path in frame_dir.iterdir()
+            if path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
+        )
+        max_frames = max(1, _env_int("OPENTALKING_IDLE_MAX_FRAMES", 125))
+        frame_paths = frame_paths[:max_frames]
+        if not frame_paths:
+            return None
+
+        from PIL import Image
+        from opentalking.media.frame_avatar import resize_reference_image_to_video
+
+        target_w = int(getattr(self.flashtalk, "width", 0) or 0)
+        target_h = int(getattr(self.flashtalk, "height", 0) or 0)
+        frames: list[np.ndarray] = []
+        for path in frame_paths:
+            try:
+                pil_img = Image.open(path).convert("RGB")
+                pil_img = resize_reference_image_to_video(pil_img, width=target_w, height=target_h)
+                img = np.asarray(pil_img)
+                frames.append(np.ascontiguousarray(img[:, :, ::-1]))
+            except Exception:
+                log.warning("Skipping unreadable wav2lip idle frame: %s", path, exc_info=True)
+                continue
+        return frames or None
 
     def _load_wav2lip_reference_idle_frames(self) -> list[np.ndarray] | None:
         frame_dir = self._wav2lip_reference_frame_dir()
