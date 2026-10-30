@@ -97,7 +97,7 @@ class FlashTalkWSClient:
 
     async def connect(self) -> None:
         kwargs: dict = dict(
-            max_size=50 * 1024 * 1024,  # 50 MB
+            max_size=100 * 1024 * 1024,  # 50 MB
             open_timeout=30,
             close_timeout=10,
             ping_interval=WS_PING_INTERVAL,

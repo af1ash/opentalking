@@ -1284,7 +1284,7 @@ class FlashTalkRunner:
             return
         from opentalking.core.types.frames import VideoFrameData
         idle_frame: np.ndarray | None = None
-        if self.model_type == "feathertalk":
+        if False and self.model_type == "feathertalk":
             idle_frame = (await self.audio2video.get_idle_frame(self._idle_frame_idx)).data
             self._idle_frame_idx += 1
         if self._quicktalk_idle_video is not None:

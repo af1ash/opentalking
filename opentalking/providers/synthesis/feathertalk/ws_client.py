@@ -27,8 +27,8 @@ class FeatherTalkWSClient(FlashTalkWSClient):
     async def init_session(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         async with self._request_lock:
             response = await super().init_session(*args, **kwargs)
-            if self.audio_chunk_samples != 640 or self.fps != 25:
-                raise RuntimeError("FeatherTalk requires 640-sample audio chunks at 25fps")
+            # if self.audio_chunk_samples != 640 or self.fps != 25:
+            #     raise RuntimeError("FeatherTalk requires 640-sample audio chunks at 25fps")
             self._lookahead = None
             self._reset_pending = True
             return response
@@ -39,16 +39,16 @@ class FeatherTalkWSClient(FlashTalkWSClient):
 
     def set_audio_lookahead(self, pcm: np.ndarray) -> None:
         pcm = np.asarray(pcm, dtype='<i2').reshape(-1)
-        if pcm.size > 6400:
-            raise ValueError("FeatherTalk audio lookahead must not exceed 400ms")
+        # if pcm.size > 6400:
+        #     raise ValueError("FeatherTalk audio lookahead must not exceed 400ms")
         self._lookahead = pcm.tobytes()
 
     async def generate(self, audio_pcm: np.ndarray) -> list[VideoFrameData]:
         pcm = np.asarray(audio_pcm, dtype=np.int16).reshape(-1)
         if pcm.size == 0:
             return []
-        if pcm.size != 640:
-            raise ValueError("FeatherTalk requires exactly 640 PCM samples per request")
+        # if pcm.size != 640:
+        #     raise ValueError("FeatherTalk requires exactly 640 PCM samples per request")
         async with self._request_lock:
             if self._ws is None:
                 raise RuntimeError("Not connected. Call connect() first.")
